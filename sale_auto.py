@@ -348,6 +348,9 @@ def get_article_details(page, post_id):
     dismiss_age_modal(page)
     page.wait_for_timeout(500)
 
+    # TinyMCEの読み込みを待つ（最大10秒）
+    page.wait_for_timeout(3000)
+
     # 現在のタイトルを取得 (name="edit_title", id="Input")
     current_title = page.evaluate("""
         () => {
@@ -366,23 +369,76 @@ def get_article_details(page, post_id):
         }
     """)
 
-    # TinyMCE iframe内の無料本文を取得
+    # TinyMCE iframe内の無料本文を取得（TinyMCE APIを優先使用）
     free_body_html = page.evaluate("""
         () => {
+            // まずTinyMCE APIから取得を試みる（最も確実）
+            if (typeof tinymce !== 'undefined') {
+                var editors = tinymce.get();
+                for (var i = 0; i < editors.length; i++) {
+                    var content = editors[i].getContent();
+                    if (content && content.trim().length > 0) {
+                        return content;
+                    }
+                }
+            }
+            // フォールバック: iframeから直接取得
             var iframes = document.querySelectorAll('iframe');
             for (var i = 0; i < iframes.length; i++) {
                 try {
                     var doc = iframes[i].contentDocument || iframes[i].contentWindow.document;
                     var body = doc.querySelector('body#tinymce, body.mce-content-body');
-                    if (body) {
+                    if (body && body.innerHTML.trim().length > 0) {
                         return body.innerHTML;
                     }
                 } catch(e) {}
             }
-            var textarea = document.querySelector('textarea[name*="free"], textarea[name*="body"]');
-            return textarea ? textarea.value : null;
+            // 最終フォールバック: textarea
+            var textareas = document.querySelectorAll('textarea');
+            for (var i = 0; i < textareas.length; i++) {
+                if (textareas[i].value && textareas[i].value.trim().length > 0) {
+                    var name = textareas[i].name || '';
+                    if (name.indexOf('free') >= 0 || name.indexOf('body') >= 0 || name.indexOf('content') >= 0) {
+                        return textareas[i].value;
+                    }
+                }
+            }
+            return null;
         }
     """)
+
+    # 本文が取得できなかった場合、追加で待ってリトライ
+    if not free_body_html or len(free_body_html.strip()) == 0:
+        log(f"    本文が空のため、追加待機してリトライ...")
+        page.wait_for_timeout(5000)
+        free_body_html = page.evaluate("""
+            () => {
+                if (typeof tinymce !== 'undefined') {
+                    var editors = tinymce.get();
+                    for (var i = 0; i < editors.length; i++) {
+                        var content = editors[i].getContent();
+                        if (content && content.trim().length > 0) {
+                            return content;
+                        }
+                    }
+                }
+                var iframes = document.querySelectorAll('iframe');
+                for (var i = 0; i < iframes.length; i++) {
+                    try {
+                        var doc = iframes[i].contentDocument || iframes[i].contentWindow.document;
+                        var body = doc.querySelector('body#tinymce, body.mce-content-body');
+                        if (body && body.innerHTML.trim().length > 0) {
+                            return body.innerHTML;
+                        }
+                    } catch(e) {}
+                }
+                return null;
+            }
+        """)
+
+    # 取得した本文のサイズをログに記録
+    body_len = len(free_body_html) if free_body_html else 0
+    log(f"    取得した本文サイズ: {body_len}文字")
 
     return {
         "current_title": current_title,
@@ -439,10 +495,23 @@ def update_article(page, post_id, new_title, new_price, new_free_body_html):
     log(f"    価格更新: {price_result}")
 
     # TinyMCE iframe内の無料本文を更新
-    escaped_html = new_free_body_html.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+    # JSON経由で安全にHTMLを渡す（テンプレートリテラルのエスケープ問題を回避）
+    import json as _json
+    html_json = _json.dumps(new_free_body_html)
     body_result = page.evaluate(f"""
         () => {{
-            var newHtml = `{escaped_html}`;
+            var newHtml = {html_json};
+            // TinyMCE APIを優先使用（最も確実な方法）
+            if (typeof tinymce !== 'undefined') {{
+                var editors = tinymce.get();
+                for (var i = 0; i < editors.length; i++) {{
+                    editors[i].setContent(newHtml);
+                    // TinyMCEの変更イベントを発火
+                    editors[i].fire('change');
+                    return 'BODY_UPDATED_VIA_API (editor: ' + editors[i].id + ')';
+                }}
+            }}
+            // フォールバック: iframeに直接書き込み
             var iframes = document.querySelectorAll('iframe');
             for (var i = 0; i < iframes.length; i++) {{
                 try {{
@@ -450,10 +519,7 @@ def update_article(page, post_id, new_title, new_price, new_free_body_html):
                     var body = doc.querySelector('body#tinymce, body.mce-content-body');
                     if (body) {{
                         body.innerHTML = newHtml;
-                        if (typeof tinymce !== 'undefined' && tinymce.activeEditor) {{
-                            tinymce.activeEditor.setContent(newHtml);
-                        }}
-                        return 'BODY_UPDATED';
+                        return 'BODY_UPDATED_VIA_IFRAME';
                     }}
                 }} catch(e) {{}}
             }}
@@ -607,6 +673,12 @@ def start_sale_for_articles(page, selected_posts, sale_start_date, sale_end_date
         original_title = details["current_title"]
         original_price = details["current_price"]
         original_body = details["free_body_html"] or ""
+
+        # セーフガード：本文が取得できなかった場合はスキップ（データ消失防止）
+        if len(original_body.strip()) == 0:
+            log(f"    ⚠ 本文が空のため、この記事をスキップします（データ消失防止）")
+            sale_results.append({"post_id": post_id, "cat_name": cat_name, "success": False, "error": "本文取得失敗（空）"})
+            continue
 
         # セール価格を計算
         sale_price, discount_label = calculate_sale_price(original_price, sales_amount)
