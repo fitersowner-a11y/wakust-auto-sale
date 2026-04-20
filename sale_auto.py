@@ -720,6 +720,11 @@ def start_sale_for_articles(page, selected_posts, sale_start_date, sale_end_date
                 "success": True,
                 "discount": discount_label,
                 "original_title": original_title[:50],
+                "title": new_title,
+                "sale_price": sale_price,
+                "url": f"https://wakust.com/post/{post_id}",
+                "sale_start": sale_start_date.strftime("%Y-%m-%d"),
+                "sale_end": sale_end_date.strftime("%Y-%m-%d"),
             })
         else:
             log(f"    セール適用失敗")
@@ -788,6 +793,7 @@ def main():
                     "mode": mode,
                     "restore_results": restore_results,
                     "sale_results": [],
+                    "sale_articles": [],
                     "active_sale_count": 0,
                 }
                 with open(RESULT_FILE, "w", encoding="utf-8") as f:
@@ -903,6 +909,7 @@ def main():
         "mode": mode,
         "restore_results": restore_results,
         "sale_results": sale_results,
+        "sale_articles": [r for r in sale_results if r.get("success")],
         "active_sale_count": len(new_active_sales),
     }
     with open(RESULT_FILE, "w", encoding="utf-8") as f:
