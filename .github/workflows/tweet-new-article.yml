@@ -1,0 +1,60 @@
+name: Tweet New Article
+
+on:
+  schedule:
+    # 毎日 09:00 JST = 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ドライラン（実際には投稿しない）'
+        required: false
+        default: 'false'
+
+jobs:
+  tweet-new-article:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: 新着記事チェック&ツイート実行
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          WAKUST_EMAIL: ${{ secrets.WAKUST_EMAIL }}
+          WAKUST_PASSWORD: ${{ secrets.WAKUST_PASSWORD }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python tweet_new_article.py --dry-run
+          else
+            python tweet_new_article.py
+          fi
+
+      - name: 投稿履歴をコミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tweet_history.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "chore: update tweet history (new article) [skip ci]"
+            git push
+          fi

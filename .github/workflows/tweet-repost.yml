@@ -1,0 +1,62 @@
+name: Tweet Repost
+
+on:
+  schedule:
+    # 火曜 14:00 JST = 月曜 05:00 UTC
+    - cron: '0 5 * * 1'
+    # 金曜 14:00 JST = 木曜 05:00 UTC
+    - cron: '0 5 * * 4'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'ドライラン（実際には投稿しない）'
+        required: false
+        default: 'false'
+
+jobs:
+  tweet-repost:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 依存関係インストール
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+          playwright install-deps chromium
+
+      - name: 記事リポストツイート実行
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          WAKUST_EMAIL: ${{ secrets.WAKUST_EMAIL }}
+          WAKUST_PASSWORD: ${{ secrets.WAKUST_PASSWORD }}
+        run: |
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            python tweet_repost.py --dry-run
+          else
+            python tweet_repost.py
+          fi
+
+      - name: 投稿履歴をコミット&プッシュ
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tweet_history.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "chore: update tweet history (repost) [skip ci]"
+            git push
+          fi

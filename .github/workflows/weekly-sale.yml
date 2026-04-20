@@ -1,12 +1,9 @@
-name: Weekly Auto Sale
+name: Weekly Sale
 
 on:
-  # 毎週月曜 深夜1時（日本時間）に自動実行
-  # UTC 16:00 (日曜) = JST 01:00 (月曜)
   schedule:
+    # 毎週月曜 深夜1時 JST = 日曜 16:00 UTC
     - cron: '0 16 * * 0'
-
-  # 手動実行も可能（テスト用）
   workflow_dispatch:
     inputs:
       mode:
@@ -17,43 +14,75 @@ on:
         options:
           - start_sale
           - restore_only
+      skip_tweet:
+        description: 'ツイート投稿をスキップ（true/false）'
+        required: false
+        default: 'false'
 
 jobs:
-  auto-sale:
+  weekly-sale:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    permissions:
+      contents: write
 
     steps:
-      # 1. リポジトリをチェックアウト
-      - name: Checkout repository
+      - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
 
-      # 2. Python環境をセットアップ
-      - name: Setup Python
+      - name: Python セットアップ
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 3. Playwrightをインストール
-      - name: Install dependencies
+      - name: 依存関係インストール
         run: |
-          pip install playwright
+          pip install -r requirements.txt
           playwright install chromium
           playwright install-deps chromium
 
-      # 4. セールスクリプトを実行
-      - name: Run sale script
+      - name: ツイート履歴を復元
+        uses: actions/cache@v4
+        with:
+          path: tweet_history.json
+          key: tweet-history-${{ github.run_id }}
+          restore-keys: |
+            tweet-history-
+
+      - name: セール実行
         env:
           WAKUST_EMAIL: ${{ secrets.WAKUST_EMAIL }}
           WAKUST_PASSWORD: ${{ secrets.WAKUST_PASSWORD }}
         run: |
           python sale_auto.py ${{ github.event.inputs.mode || 'start_sale' }}
 
-      # 5. 状態ファイル・履歴・ログをコミットして保存
-      - name: Commit state files
+      - name: セール結果ファイルを確認
+        run: |
+          if [ -f sale_result.json ]; then
+            echo "=== sale_result.json の内容 ==="
+            cat sale_result.json
+          else
+            echo "sale_result.json が見つかりません"
+            exit 1
+          fi
+
+      - name: セール告知ツイートを実行
+        if: ${{ github.event.inputs.skip_tweet != 'true' }}
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+        run: |
+          python tweet_sale.py
+
+      - name: 状態ファイルをコミット&プッシュ
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f sale_state.json sale_history.json sale_result.json sale_log.txt
-          git diff --staged --quiet || git commit -m "🏷️ Auto sale update $(date '+%Y-%m-%d %H:%M')"
-          git push
+          git add sale_state.json sale_history.json sale_result.json tweet_history.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "chore: weekly sale & tweet [skip ci]"
+            git push
+          fi
