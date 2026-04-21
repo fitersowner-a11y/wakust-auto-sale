@@ -33,6 +33,8 @@ SALE_RESULT_FILE = Path(__file__).parent / "sale_result.json"
 # テンプレート生成
 # ─────────────────────────────────────────
 def build_sale_tweet(article: dict) -> str:
+    title = article.get("title", "")
+    title = mask_title(title) 
     """
     セール告知ツイートのテキストを生成する
 
