@@ -71,6 +71,7 @@ CATEGORIES = {
 # テンプレート生成
 # ─────────────────────────────────────────
 def build_repost_tweet(title: str, url: str, category: str) -> str:
+    title = mask_title(title) 
     cat_hashtag = CATEGORY_HASHTAGS.get(category, "")
     hashtags = f"{HASHTAG_COMMON} {cat_hashtag}".strip() if cat_hashtag else HASHTAG_COMMON
 
