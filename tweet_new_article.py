@@ -20,6 +20,7 @@ from tweet_utils import (
     add_to_history,
     get_x_client,
     load_history,
+    mask_title,     
     post_tweet,
     save_history,
     was_new_article_tweeted,
@@ -55,6 +56,7 @@ CATEGORIES = {
 # テンプレート生成
 # ─────────────────────────────────────────
 def build_new_article_tweet(title: str, url: str) -> str:
+    title = mask_title(title)
     tweet = (
         f"🆕 新着記事が公開されました！\n\n"
         f"「{title}」\n\n"
