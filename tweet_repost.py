@@ -23,6 +23,7 @@ from tweet_utils import (
     add_to_history,
     get_x_client,
     load_history,
+    mask_title,
     post_tweet,
     save_history,
     was_recently_tweeted,
@@ -71,7 +72,7 @@ CATEGORIES = {
 # テンプレート生成
 # ─────────────────────────────────────────
 def build_repost_tweet(title: str, url: str, category: str) -> str:
-    title = mask_title(title) 
+    title = mask_title(title)
     cat_hashtag = CATEGORY_HASHTAGS.get(category, "")
     hashtags = f"{HASHTAG_COMMON} {cat_hashtag}".strip() if cat_hashtag else HASHTAG_COMMON
 

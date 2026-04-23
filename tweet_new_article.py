@@ -20,7 +20,7 @@ from tweet_utils import (
     add_to_history,
     get_x_client,
     load_history,
-    mask_title,     
+    mask_title,
     post_tweet,
     save_history,
     was_new_article_tweeted,

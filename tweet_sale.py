@@ -17,6 +17,7 @@ from tweet_utils import (
     add_to_history,
     get_x_client,
     load_history,
+    mask_title,
     post_tweet,
     save_history,
     was_sale_already_tweeted,
@@ -33,8 +34,6 @@ SALE_RESULT_FILE = Path(__file__).parent / "sale_result.json"
 # テンプレート生成
 # ─────────────────────────────────────────
 def build_sale_tweet(article: dict) -> str:
-    title = article.get("title", "")
-    title = mask_title(title) 
     """
     セール告知ツイートのテキストを生成する
 
@@ -46,7 +45,7 @@ def build_sale_tweet(article: dict) -> str:
         sale_start  : セール開始日（YYYY-MM-DD）
         sale_end    : セール終了日（YYYY-MM-DD）
     """
-    title = article.get("title", "")
+    title = mask_title(article.get("title", ""))
     discount = article.get("discount", "")
     sale_price = article.get("sale_price", "")
     url = article.get("url", "")
